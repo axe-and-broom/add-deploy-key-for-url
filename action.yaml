@@ -1,0 +1,53 @@
+# https://help.github.com/en/articles/metadata-syntax-for-github-actions
+name: "Add deploy key (SSH) for git url"
+description: "Install deploy SSH key in ~/.ssh only for a specific git URL (uses git config url.insteadOf alias). This allows you to use multiple keys for the same domain given that there are different urls (e.g., git@github.com:user1/repo1.git and git@github.com:user2/repo2.git)."
+author: "axe-and-broom"
+branding:
+  icon: "terminal"
+  color: "gray-dark"
+inputs:
+  host:
+    description: 'The hostname of the git repository (example: github.com)'
+    required: true
+  git-url:
+    description: 'The full url to the git repository (example: git@github.com/my-org/my-repo.git)'
+    required: true
+  private-key:
+    description: The private key to use with the git url
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Random alias
+      id: random-alias
+      shell: bash
+      run: |
+        # Create a random string and save to output
+        echo "alias=$(openssl rand -hex 12)" >> $GITHUB_OUTPUT
+
+    - name: Alias url
+      id: alias-url
+      shell: bash
+      run: |
+        # Insert random-alias instead of the host into the git-url
+        URL=${{ inputs.git-url }}
+        ALIAS_URL=${URL/${{ inputs.host }}/${{ steps.random-alias.outputs.alias }}}
+        echo "alias-url=${ALIAS_URL}" >> $GITHUB_OUTPUT
+
+    - name: Add git alias for deploy key
+      shell: bash
+      run: |
+        # Point any normal reference to the repo to use the ssh alias which uses the deploy key
+        git config --global url."${{ steps.alias-url.outputs.alias-url }}".insteadOf '${{ inputs.git-url }}'
+
+    - name: Install SSH key and configure host alias
+      uses: shimataro/ssh-key-action@v2
+      with:
+        key: ${{ inputs.private-key }}
+        name: id_rsa-${{ steps.random-alias.outputs.alias }}
+        known_hosts: ${{ inputs.host }}
+        config: |
+          Host ${{ steps.random-alias.outputs.alias }}
+              Hostname ${{ inputs.host }}
+              IdentityFile ~/.ssh/id_rsa-${{ steps.random-alias.outputs.alias }}
+              IdentitiesOnly yes
